@@ -1,6 +1,6 @@
 # JavaMathLib
 
-A lightweight Java mathematics library providing matrix algebra, vector maths, Perlin noise generation, and a collection of general-purpose numeric utilities. The library is designed with machine learning applications in mind, but is broadly useful for simulations, procedural graphics, and any numerically intensive Java project.
+A lightweight Java mathematics library providing matrix algebra, vector maths, Perlin noise generation, and a collection of general-purpose numeric utilities written by Mario Gianota. The library is designed with machine learning applications in mind, but is broadly useful for simulations, procedural graphics, and any numerically intensive Java project.
 
 ---
 
