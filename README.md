@@ -1,6 +1,6 @@
 # JavaMathLib
 
-A lightweight Java mathematics library providing matrix algebra, vector maths, Perlin noise generation, and a collection of general-purpose numeric utilities written by Mario Gianota. The library is designed with machine learning applications in mind, but is broadly useful for simulations, procedural graphics, and any numerically intensive Java project.
+A lightweight Java mathematics library providing matrix algebra, vector maths, Perlin noise generation, and a collection of general-purpose numeric utilities. The library is designed with machine learning applications in mind, but is broadly useful for simulations, procedural graphics, and any numerically intensive Java project.
 
 ---
 
@@ -13,7 +13,10 @@ A lightweight Java mathematics library providing matrix algebra, vector maths, P
   - [Arithmetic Operations](#arithmetic-operations)
   - [Matrix Multiplication](#matrix-multiplication)
   - [Transpose and Inverse](#transpose-and-inverse)
+  - [Solving Linear Systems](#solving-linear-systems)
+  - [Determinant, Trace and Mean](#determinant-trace-and-mean)
   - [Element-wise Mapping](#element-wise-mapping)
+  - [Reshaping and Combining](#reshaping-and-combining)
   - [Utility Methods](#utility-methods)
 - [Vector](#vector)
   - [Creating a Vector](#creating-a-vector)
@@ -25,7 +28,8 @@ A lightweight Java mathematics library providing matrix algebra, vector maths, P
   - [Random Numbers](#random-numbers)
   - [Perlin Noise](#perlin-noise)
 - [Function Interface](#function-interface)
-- [Known Bug: `Matrix.inverse()` Mutates the Original](#known-bug-matrixinverse-mutates-the-original)
+- [Running the Tests](#running-the-tests)
+- [Changelog](#changelog)
 
 ---
 
@@ -50,7 +54,7 @@ All classes are in the default package. Copy the `.java` files into your project
 javac *.java
 ```
 
-No external dependencies are required.
+No external dependencies are required. Java 8 or later is needed.
 
 ---
 
@@ -58,18 +62,23 @@ No external dependencies are required.
 
 The `Matrix` class wraps a `double[][]` array and exposes a rich set of operations suitable for neural networks and other ML workloads.
 
+Every arithmetic and structural operation (`add`, `dot`, `transpose`, `inverse`, `solve`, `map`, `appendRight` and the rest) returns a **new** `Matrix` and never modifies the one it is called on. The only methods that change a matrix in place are `setValueAt`, `readData`, `randomize`, `ones`, `zeros` and `fill`.
+
 ### Creating a Matrix
 
 ```java
+// Directly from a 2D array (the data is copied)
+Matrix m = new Matrix(new double[][] { {1, 2, 3}, {4, 5, 6} });
+
 // Empty matrix — populate later with readData()
 Matrix a = new Matrix();
+a.readData(new double[][] { {1, 2, 3}, {4, 5, 6} });
 
 // Pre-sized matrix, all elements initialised to 0
 Matrix b = new Matrix(3, 3);
 
-// Load data from a 2D array
-double[][] data = { {1, 2, 3}, {4, 5, 6} };
-a.readData(data);
+// n x n identity matrix
+Matrix i3 = Matrix.identity(3);
 
 // Create a column-vector matrix from a 1D array
 double[] values = {1.0, 2.0, 3.0};
@@ -165,12 +174,11 @@ Matrix t = m.transpose();
 // [2, 5]
 // [3, 6]
 
-// Inverse — only valid for square matrices
-double[][] sq = { {1, 2}, {3, 4} };
-Matrix s = new Matrix(); s.readData(sq);
+// Inverse — only valid for square, non-singular matrices
+Matrix s = new Matrix(new double[][] { {1, 2}, {3, 4} });
 
 try {
-    Matrix inv = s.inverse();
+    Matrix inv = s.inverse();   // s itself is left unchanged
     inv.print();
     // [-2.0,  1.0]
     // [ 1.5, -0.5]
@@ -179,7 +187,36 @@ try {
 }
 ```
 
-> ⚠️ **See the [Known Bug](#known-bug-matrixinverse-mutates-the-original) section below** before calling `inverse()` in production code.
+`inverse()` throws `NonInvertibleMatrixException` if the matrix is not square, is empty, or is singular (or so close to singular that the result would be meaningless — see `Matrix.SINGULAR_TOLERANCE`). Previously a singular matrix silently "inverted" to a matrix of `Infinity` values.
+
+### Solving Linear Systems
+
+To solve `A·x = b`, use `solve()` rather than `inverse().dot(b)` — it does the same elimination without building the full inverse, so it is faster and more accurate.
+
+```java
+Matrix A = new Matrix(new double[][] { {2, 1, -1}, {-3, -1, 2}, {-2, 1, 2} });
+Matrix b = Matrix.fromArray(new double[] { 8, -11, -3 });
+
+Matrix x = A.solve(b);
+// 2.0
+// 3.0
+// -1.0
+```
+
+`b` may have several columns; each is solved as a separate right-hand side. (`A.solve(Matrix.identity(n))` is exactly `A.inverse()`.)
+
+### Determinant, Trace and Mean
+
+```java
+Matrix s = new Matrix(new double[][] { {1, 2}, {3, 4} });
+
+double det   = s.determinant();  // -2.0
+double trace = s.trace();        //  5.0  (sum of the diagonal)
+double mean  = s.mean();         //  2.5  (average of all elements)
+
+// Mean squared error in one line
+double mse = prediction.subtract(target).square().mean();
+```
 
 ### Element-wise Mapping
 
@@ -209,6 +246,36 @@ Matrix abs = m.map(new Function() {
 Matrix result = Matrix.map(m, x -> x * x);
 ```
 
+### Reshaping and Combining
+
+```java
+Matrix m = new Matrix(new double[][] { {1, 2}, {3, 4} });
+
+// Side by side (row counts must match) — e.g. add a bias column of ones
+Matrix ones = new Matrix(2, 1); ones.ones();
+Matrix withBias = m.appendRight(ones);
+// [1, 2, 1]
+// [3, 4, 1]
+
+// Stacked (column counts must match)
+Matrix stacked = m.appendBottom(new Matrix(new double[][] { {5, 6} }));
+// [1, 2]
+// [3, 4]
+// [5, 6]
+
+// Pad with zeros
+Matrix taller = m.addRows(1);     // 3x2, last row zeros
+Matrix wider  = m.addColumns(2);  // 2x4, last two columns zeros
+
+// Single rows and columns
+Matrix row = m.getRow(0);         // [1, 2]  (1x2)
+Matrix col = m.getColumn(1);      // [2, 4]  (2x1)
+
+// Flatten (row-major) into a column or row vector
+Matrix asCol = m.getAsVector(Matrix.COLUMN_VECTOR);  // 4x1
+Matrix asRow = m.getAsVector(Matrix.ROW_VECTOR);     // 1x4
+```
+
 ### Utility Methods
 
 ```java
@@ -233,14 +300,19 @@ Matrix col = m.getColumn(1);
 // Convert to a flat 1D array (row-major order)
 double[] flat = m.toArray();
 
-// Print to stdout
+// Print to stdout (columns are right-aligned)
 m.print();
 
 // Compare two matrices element by element
-Matrix a = new Matrix(); a.readData(new double[][]{{1,2},{3,4}});
-Matrix b = new Matrix(); b.readData(new double[][]{{1,2},{3,4}});
+Matrix a = new Matrix(new double[][]{{1,2},{3,4}});
+Matrix b = new Matrix(new double[][]{{1,2},{3,4}});
 boolean equal = a.equals(b);  // true
+
+// Compare within a tolerance — usually what you want after floating point maths
+boolean isIdentity = a.dot(a.inverse()).equals(Matrix.identity(2), 1e-9);  // true
 ```
+
+`Matrix` also overrides `equals(Object)` and `hashCode()`, so matrices behave correctly as keys in a `HashMap` or members of a `HashSet`.
 
 ---
 
@@ -408,77 +480,38 @@ Matrix activations = weightedSums.map(sigmoid);
 
 ---
 
-## Known Bug: `Matrix.inverse()` Mutates the Original
+## Running the Tests
 
-There is a subtle but significant bug in the `inverse()` method. It calls the private helper `gaussian()`, passing the internal `matrix` array directly:
+`MatrixTest.java` is a self-contained test suite with no dependencies (no JUnit needed):
 
-```java
-// Inside inverse():
-gaussian(matrix, index);   // ← 'matrix' is the raw internal array
+```bash
+javac *.java
+java MatrixTest
+# 71 passed, 0 failed
 ```
 
-The `gaussian()` method performs Gaussian elimination **in place**, modifying the values of the array it receives. Because Java passes arrays by reference, this means `gaussian()` overwrites the contents of the original matrix rather than working on a copy. After calling `inverse()`, the original matrix is left in a corrupted, partially-eliminated state.
+---
 
-**Example of the problem:**
+## Changelog
 
-```java
-double[][] data = { {1, 2}, {3, 4} };
-Matrix m = new Matrix();
-m.readData(data);
+### Bug fixes
 
-System.out.println("Before:");
-m.print();
-// [1.0, 2.0]
-// [3.0, 4.0]
+- **`inverse()` no longer destroys the original matrix.** It used to run Gaussian elimination directly on the matrix's own internal array, so after one call the matrix was left half-eliminated and every later calculation with it — including a second `inverse()` — was wrong. Elimination now always works on a private copy.
+- **Singular matrices now throw `NonInvertibleMatrixException`** instead of silently returning `Infinity`/`NaN` values. A latent row-swap bug in the pivot search (the pivot index carried over between columns) is fixed at the same time.
+- `getValueAt()` and `getColumn()` accepted a column index equal to the column count; they now reject it with a clear message.
+- `readData()` rejected empty arrays with an `ArrayIndexOutOfBoundsException` and silently accepted jagged arrays; it now accepts empty data and rejects jagged rows. `new Matrix().copy()` no longer throws a `NullPointerException`.
+- `dot()` no longer crashes when the right-hand matrix has zero rows.
+- `equals(Matrix)` now handles `null`; `equals(Object)` and a matching `hashCode()` have been added (with `0.0` and `-0.0` hashing alike, since they compare equal).
+- Javadoc corrections: the class example used `multiply` where it meant `dot`, and `toArray()` was described as column-ordered when it is row-major.
 
-Matrix inv = m.inverse();
+### New features
 
-System.out.println("After calling inverse(), m is now:");
-m.print();
-// ← m is corrupted; its values have been overwritten by the elimination process
-```
-
-**The fix** is straightforward — pass a deep copy of the internal array to `gaussian()` instead of the original:
-
-```java
-public Matrix inverse() throws NonInvertibleMatrixException {
-    if (!isSquare())
-        throw new NonInvertibleMatrixException("Cannot invert a non square matrix.");
-
-    int n = rows;
-    double x[][] = new double[n][n];
-    double b[][] = new double[n][n];
-    int index[]  = new int[n];
-
-    // Take a deep copy so the original matrix is not mutated
-    double[][] copy = new double[n][n];
-    for (int i = 0; i < n; i++)
-        copy[i] = matrix[i].clone();
-
-    for (int i = 0; i < n; i++)
-        b[i][i] = 1;
-
-    gaussian(copy, index);   // ← pass 'copy', not 'matrix'
-
-    for (int i = 0; i < n - 1; i++)
-        for (int j = i + 1; j < n; j++)
-            for (int k = 0; k < n; k++)
-                b[index[j]][k] -= copy[index[j]][i] * b[index[i]][k];
-
-    for (int i = 0; i < n; i++) {
-        x[n-1][i] = b[index[n-1]][i] / copy[index[n-1]][n-1];
-        for (int j = n - 2; j >= 0; j--) {
-            x[j][i] = b[index[j]][i];
-            for (int k = j + 1; k < n; k++)
-                x[j][i] -= copy[index[j]][k] * x[k][i];
-            x[j][i] /= copy[index[j]][j];
-        }
-    }
-
-    Matrix result = new Matrix();
-    result.readData(x);
-    return result;
-}
-```
-
-This bug is easy to miss because the returned inverse matrix itself is computed correctly — it is only the **caller's copy of the original** that is silently destroyed. In short-lived or single-use code this may go unnoticed, but in any iterative algorithm (such as a training loop) that repeatedly inverts and then uses the same matrix, the results will be wrong from the second call onwards.
+- `new Matrix(double[][])` constructor
+- `Matrix.identity(n)` and `identity()` (previously unimplemented)
+- `solve(b)` for linear systems
+- `determinant()`, `trace()`, `mean()`
+- `getRow()`, `appendRight()`, `appendBottom()`, `addRows()`, `addColumns()` (previously unimplemented — now return new matrices rather than changing the original)
+- `getAsVector(COLUMN_VECTOR | ROW_VECTOR)` — the constants existed but the method did not
+- `equals(Matrix, tolerance)`
+- `toString()` right-aligns columns
+- The demo `main()` has been removed from `Matrix` and replaced by `MatrixTest`
