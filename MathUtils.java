@@ -3,7 +3,7 @@ import java.util.Random;
 /**
  * A bunch of static methods that perform useful mathematical operations.
  * 
- * @author Mario Gianota gianotamario@gmail.com
+ * @author Mario Gianota mariogianota@protonmail.com
  *
  */
 public class MathUtils {
