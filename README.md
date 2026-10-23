@@ -1,4 +1,8 @@
-# Java Matrix Maths Library
+![Java Matrix Maths](banner.jpeg)
+
+# Java Matrix Maths Library Version 2.0
+
+By Mario Gianota <mariogianota@protonmail.com>
 
 A lightweight Java mathematics library providing matrix algebra, vector maths, Perlin noise generation, and a collection of general-purpose numeric utilities. The library is designed with machine learning applications in mind, but is broadly useful for simulations, procedural graphics, and any numerically intensive Java project.
 
