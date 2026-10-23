@@ -50,13 +50,15 @@ public class Vector {
 		  this.z = z;
 	  }
 	  /**
-	   * Set the Vector's values
+	   * Set the Vector's values as a 2D vector. The z value is set to 0,
+	   * matching the 2-argument constructor.
 	   * @param x the x value to set
 	   * @param y the y value to set
 	   */
 	  public void set(double x, double y) {
 		  this.x = x;
 		  this.y = y;
+		  this.z = 0;
 	  }
 	  /**
 	   * Zeros out the x,y and z values of the Vector.

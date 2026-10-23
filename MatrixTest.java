@@ -145,6 +145,18 @@ public class MatrixTest {
         String s = m(new double[][] {{1,-20.5},{300,4}}).toString();
         check("toString right-aligns", s.equals("  1.0  -20.5\n300.0    4.0\n"));
 
+        // --- MathUtils and Vector fixes ---
+        check("inRange is static and inclusive", MathUtils.inRange(10, 0, 10) && !MathUtils.inRange(10.1, 0, 10));
+        boolean floatsOk = true;
+        for (int i = 0; i < 1000; i++) {
+            float f = MathUtils.nextFloat(2f, 3f);   // compiles only because it returns float
+            if (f < 2f || f >= 3f) floatsOk = false;
+        }
+        check("nextFloat returns float in range", floatsOk);
+        Vector v = new Vector(1, 2, 3);
+        v.set(4, 5);
+        check("Vector.set(x,y) zeroes z", v.x == 4 && v.y == 5 && v.z == 0);
+
         System.out.println(passed + " passed, " + failed + " failed");
         if (failed > 0) System.exit(1);
     }

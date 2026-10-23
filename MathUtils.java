@@ -3,7 +3,7 @@ import java.util.Random;
 /**
  * A bunch of static methods that perform useful mathematical operations.
  * 
- * @author Mario Gianota mariogianota@protonmail.com
+ * @author Mario Gianota gianotamario@gmail.com
  *
  */
 public class MathUtils {
@@ -19,14 +19,14 @@ public class MathUtils {
 	 * @param end the end range
 	 * @return in range
 	 */
-	public boolean inRange(double value, double start, double end) {
+	public static boolean inRange(double value, double start, double end) {
 		if( value >= start && value <= end)
 			return true;
 		return false;
 	}
 
 	/**
-	 * Constrain a number between a lower bound and upper bound such that if <em>n</n>
+	 * Constrain a number between a lower bound and upper bound such that if <em>n</em>
 	 * is less than <em>lower</em> then <em>lower</em> is returned or if <em>n</em> is
 	 * greater than <em>upper</em> then <em>upper</em> is returned.
 	 * 
@@ -44,7 +44,7 @@ public class MathUtils {
 		return num;
 	}
 	/**
-	 * Constrain an integer number between a lower bound and upper bound such that if <em>n</n>
+	 * Constrain an integer number between a lower bound and upper bound such that if <em>n</em>
 	 * is less than <em>lower</em> then <em>lower</em> is returned or if <em>n</em> is
 	 * greater than <em>upper</em> then <em>upper</em> is returned.
 	 * 
@@ -62,7 +62,7 @@ public class MathUtils {
 		return num;
 	}
 	/**
-	 * Normalize a value to betwwen 0 and 1 for a given range.
+	 * Normalize a value to between 0 and 1 for a given range.
 	 */
 	public static double normalize(double value, double min, double max) {
 		return (value - min) / ( max - min);
@@ -120,7 +120,7 @@ public class MathUtils {
 	 * @param rangeMax end range
 	 * @return the random number
 	 */
-	public static double nextFloat(float rangeMin, float rangeMax) {
+	public static float nextFloat(float rangeMin, float rangeMax) {
 		return rangeMin + (rangeMax - rangeMin) * rnd.nextFloat();
 	}
 	
