@@ -157,6 +157,76 @@ public class MatrixTest {
         v.set(4, 5);
         check("Vector.set(x,y) zeroes z", v.x == 4 && v.y == 5 && v.z == 0);
 
+        // --- LU factorisation ---
+        for (int n = 1; n <= 9; n++) {
+            Matrix r = new Matrix(n, n);
+            r.randomize();
+            Matrix d = r.add(Matrix.identity(n).multiply(0.5)); // usually needs row swaps
+            Matrix dCopy = d.copy();
+            Matrix.LU f = d.lu();
+            Matrix L = f.getL(), U = f.getU(), P = f.getP();
+            check("lu " + n + "x" + n + " P*A = L*U", P.dot(d).equals(L.dot(U), 1e-12));
+            boolean lowerOk = true, upperOk = true;
+            for (int i = 0; i < n; i++)
+                for (int j = 0; j < n; j++) {
+                    if (j > i && L.getValueAt(i, j) != 0) lowerOk = false;
+                    if (i == j && L.getValueAt(i, j) != 1) lowerOk = false;
+                    if (j < i && U.getValueAt(i, j) != 0) upperOk = false;
+                }
+            check("lu " + n + "x" + n + " L unit lower triangular", lowerOk);
+            check("lu " + n + "x" + n + " U upper triangular", upperOk);
+            check("lu " + n + "x" + n + " leaves A unchanged", d.equals(dCopy));
+            check("lu " + n + "x" + n + " det = A.determinant()",
+                    Math.abs(f.determinant() - d.determinant()) <= 1e-12 * Math.max(1, Math.abs(d.determinant())));
+            check("lu " + n + "x" + n + " det(P) sign matches", Math.abs(P.determinant()) == 1);
+            check("lu " + n + "x" + n + " inverse", d.dot(f.inverse()).equals(Matrix.identity(n), 1e-9));
+        }
+
+        // Factor once, solve many: matches a fresh solve every time
+        Matrix.LU luA = A.lu();
+        Matrix b2 = Matrix.fromArray(new double[] {1, 0, 0});
+        Matrix multi = new Matrix(new double[][] {{8,1},{-11,0},{-3,0}});
+        check("lu.solve classic system", luA.solve(b).equals(Matrix.fromArray(new double[] {2,3,-1}), TOL));
+        check("lu.solve reused = A.solve", luA.solve(b2).equals(A.solve(b2), TOL));
+        check("lu.solve multiple columns", luA.solve(multi).equals(A.solve(multi), TOL));
+        check("lu.solve leaves b unchanged", b.equals(Matrix.fromArray(new double[] {8,-11,-3})));
+        check("lu.inverse = A.inverse", luA.inverse().equals(A.inverse(), TOL));
+        check("lu.determinant", Math.abs(luA.determinant() - (-1)) < TOL);
+        check("lu.size", luA.size() == 3);
+        expectThrows("lu.solve rhs wrong rows", IllegalArgumentException.class, () -> luA.solve(new Matrix(2, 1)));
+        check("lu.solve zero-column rhs", luA.solve(new Matrix(3, 0)).getColumns() == 0);
+
+        // The pivot order and P agree, and getters hand out copies
+        int[] piv = swap.lu().getPivot();
+        check("pivot order for swap matrix", piv[0] == 1 && piv[1] == 0);
+        piv[0] = 42;
+        check("getPivot returns a copy", swap.lu().getPivot()[0] == 1);
+        Matrix Lcopy = luA.getL();
+        Lcopy.setValueAt(1, 0, 1000);
+        check("getL returns a copy", luA.solve(b).equals(Matrix.fromArray(new double[] {2,3,-1}), TOL));
+        check("swap matrix P*A = L*U", swap.lu().getP().dot(swap).equals(swap.lu().getL().dot(swap.lu().getU())));
+
+        // Singular and invalid inputs
+        expectThrows("lu singular", NonInvertibleMatrixException.class,
+                () -> m(new double[][] {{1,2,3},{4,5,6},{7,8,9}}).lu());
+        expectThrows("lu zero row", NonInvertibleMatrixException.class,
+                () -> m(new double[][] {{1,2},{0,0}}).lu());
+        expectThrows("lu non square", NonInvertibleMatrixException.class, () -> new Matrix(2,3).lu());
+        expectThrows("lu empty", NonInvertibleMatrixException.class, () -> new Matrix().lu());
+
+        // determinant now agrees exactly with inverse() about singularity
+        check("det of numerically singular 3x3 is exactly 0",
+                m(new double[][] {{1,2,3},{4,5,6},{7,8,9}}).determinant() == 0);
+        check("det with zero row is exactly 0", m(new double[][] {{1,2},{0,0}}).determinant() == 0);
+        check("det of 0x0 is 1", new Matrix().determinant() == 1);
+        expectThrows("det non square", IllegalStateException.class, () -> new Matrix(2,3).determinant());
+        // Scale invariance: a tiny but perfectly well-conditioned matrix is not 'singular'
+        Matrix tiny = Matrix.identity(3).multiply(1e-20);
+        check("tiny well-conditioned matrix inverts", tiny.inverse().equals(Matrix.identity(3).multiply(1e20), 1e8));
+        check("tiny matrix determinant", Math.abs(tiny.determinant() - 1e-60) < 1e-72);
+        check("diagonal determinant", Math.abs(m(new double[][] {{2,0,0},{0,3,0},{0,0,4}}).determinant() - 24) < TOL);
+        check("permutation determinant -1", Math.abs(m(new double[][] {{0,0,1},{0,1,0},{1,0,0}}).determinant() + 1) < TOL);
+
         System.out.println(passed + " passed, " + failed + " failed");
         if (failed > 0) System.exit(1);
     }

@@ -1,8 +1,4 @@
-![Java Matrix Maths](banner.jpeg)
-
-# Java Matrix Maths Library Version 2.0
-
-By Mario Gianota <mariogianota@protonmail.com>
+# JavaMathLib
 
 A lightweight Java mathematics library providing matrix algebra, vector maths, Perlin noise generation, and a collection of general-purpose numeric utilities. The library is designed with machine learning applications in mind, but is broadly useful for simulations, procedural graphics, and any numerically intensive Java project.
 
@@ -18,6 +14,7 @@ A lightweight Java mathematics library providing matrix algebra, vector maths, P
   - [Matrix Multiplication](#matrix-multiplication)
   - [Transpose and Inverse](#transpose-and-inverse)
   - [Solving Linear Systems](#solving-linear-systems)
+  - [LU Decomposition](#lu-decomposition)
   - [Determinant, Trace and Mean](#determinant-trace-and-mean)
   - [Element-wise Mapping](#element-wise-mapping)
   - [Reshaping and Combining](#reshaping-and-combining)
@@ -42,6 +39,7 @@ A lightweight Java mathematics library providing matrix algebra, vector maths, P
 | Class | Description |
 |---|---|
 | `Matrix` | Full-featured 2D matrix with ML-oriented operations |
+| `Matrix.LU` | Reusable LU factorisation of a square matrix (`P·A = L·U`) |
 | `Vector` | 3D (and 2D) vector maths |
 | `MathUtils` | Static utility methods for common numeric operations |
 | `PerlinNoise` | Ken Perlin's classic noise algorithm (3D) |
@@ -209,6 +207,40 @@ Matrix x = A.solve(b);
 
 `b` may have several columns; each is solved as a separate right-hand side. (`A.solve(Matrix.identity(n))` is exactly `A.inverse()`.)
 
+Each call to `solve()` factorises `A` from scratch. If you need to solve against the same `A` many times, factorise it once with `lu()` — see below.
+
+### LU Decomposition
+
+`lu()` factorises a square matrix into `P·A = L·U`, where `P` is a permutation matrix (the row swaps made while pivoting), `L` is lower triangular with ones on its diagonal, and `U` is upper triangular. `solve()`, `inverse()` and `determinant()` are all built on it.
+
+The reason to call it yourself is reuse. Factorising costs about n³ operations; each solve with an existing factorisation costs only about n². So when the matrix stays the same but the right-hand side changes — Newton iterations, a Kalman filter, a simulation stepping through time, regression against several targets — factorise once and keep the result:
+
+```java
+Matrix A = new Matrix(new double[][] { {2, 1, -1}, {-3, -1, 2}, {-2, 1, 2} });
+
+try {
+    Matrix.LU lu = A.lu();                 // the expensive part, done once
+
+    Matrix x1 = lu.solve(b1);              // each of these is cheap
+    Matrix x2 = lu.solve(b2);
+    double det = lu.determinant();         // -1.0, essentially free
+    Matrix inv = lu.inverse();
+
+    // Inspect the factors (each getter returns a copy)
+    Matrix L = lu.getL();
+    Matrix U = lu.getU();
+    Matrix P = lu.getP();
+    boolean ok = P.dot(A).equals(L.dot(U), 1e-12);  // true
+    int[] pivot = lu.getPivot();           // compact form of P: row i came from A's row pivot[i]
+} catch (NonInvertibleMatrixException e) {
+    System.out.println("Matrix is singular: " + e.getMessage());
+}
+```
+
+On a 400×400 system, factorising once and solving 50 right-hand sides takes roughly 40 ms, against roughly 280 ms for 50 separate `solve()` calls.
+
+A `Matrix.LU` is immutable, so it is safe to keep and share. `lu()` throws `NonInvertibleMatrixException` if the matrix is not square, is empty, or is singular. Pivoting is scaled (each candidate pivot is compared relative to the size of its row), so a matrix that is merely small, such as `identity(3).multiply(1e-20)`, is not mistaken for a singular one.
+
 ### Determinant, Trace and Mean
 
 ```java
@@ -221,6 +253,8 @@ double mean  = s.mean();         //  2.5  (average of all elements)
 // Mean squared error in one line
 double mse = prediction.subtract(target).square().mean();
 ```
+
+`determinant()` uses the same LU factorisation and the same singularity test as `inverse()`, so the two always agree: for a matrix that `inverse()` rejects, such as `{{1,2,3},{4,5,6},{7,8,9}}`, `determinant()` returns exactly `0` rather than a rounding-error value like `6.66e-16`.
 
 ### Element-wise Mapping
 
@@ -428,7 +462,7 @@ current = MathUtils.approach(goal, current, 3.0);  // 10.0 (clamps at goal)
 
 ```java
 double d  = MathUtils.nextDouble(0.0, 1.0);  // random double in [0, 1)
-float  f  = (float) MathUtils.nextFloat(0f, 1f);  // random float in [0, 1)
+float  f  = MathUtils.nextFloat(0f, 1f);     // random float in [0, 1)
 int    n  = MathUtils.nextInt(1, 7);          // random int in [1, 6] — simulates a die
 ```
 
@@ -491,14 +525,30 @@ Matrix activations = weightedSums.map(sigmoid);
 ```bash
 javac *.java
 java MatrixTest
-# 71 passed, 0 failed
+# 162 passed, 0 failed
 ```
 
 ---
 
 ## Changelog
 
-### Bug fixes
+### LU decomposition release
+
+#### New features
+
+- **`lu()` and the `Matrix.LU` class.** Factorise a square matrix once as `P·A = L·U`, then reuse it: `solve(b)` (about n² per right-hand side instead of n³), `inverse()`, `determinant()`, plus `getL()`, `getU()`, `getP()`, `getPivot()` and `size()`.
+- `solve()`, `inverse()` and `determinant()` are now all built on this single factorisation, replacing two separate elimination routines. Their signatures and exceptions are unchanged, so existing code needs no changes.
+
+#### Improvements
+
+- **`determinant()` now agrees with `inverse()` about singularity.** It previously ran its own elimination with unscaled pivoting and an exact `== 0` test, so a matrix that `inverse()` correctly rejected could have a determinant of `6.66e-16`. It now returns exactly `0` for any matrix `inverse()` would reject.
+- `inverse()` is about twice as fast: the factorisation stores its rows already swapped, which avoids indirect indexing in the inner loops.
+- Test suite extended from 74 to 162 checks, including `P·A = L·U`, triangularity of `L` and `U`, reuse of one factorisation across many right-hand sides, and scale invariance of the singularity test.
+- README: the `nextFloat` example no longer needs a `(float)` cast, and the test count is corrected.
+
+### Earlier release
+
+#### Bug fixes
 
 - **`inverse()` no longer destroys the original matrix.** It used to run Gaussian elimination directly on the matrix's own internal array, so after one call the matrix was left half-eliminated and every later calculation with it — including a second `inverse()` — was wrong. Elimination now always works on a private copy.
 - **Singular matrices now throw `NonInvertibleMatrixException`** instead of silently returning `Infinity`/`NaN` values. A latent row-swap bug in the pivot search (the pivot index carried over between columns) is fixed at the same time.
@@ -508,7 +558,7 @@ java MatrixTest
 - `equals(Matrix)` now handles `null`; `equals(Object)` and a matching `hashCode()` have been added (with `0.0` and `-0.0` hashing alike, since they compare equal).
 - Javadoc corrections: the class example used `multiply` where it meant `dot`, and `toArray()` was described as column-ordered when it is row-major.
 
-### New features
+#### New features
 
 - `new Matrix(double[][])` constructor
 - `Matrix.identity(n)` and `identity()` (previously unimplemented)

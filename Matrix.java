@@ -334,41 +334,27 @@ public class Matrix {
     }
 
     /**
-     * Computes the determinant of the matrix using Gaussian elimination with partial
-     * pivoting. The matrix must be square and is left unchanged.
+     * Computes the determinant of the matrix. The matrix must be square and is left
+     * unchanged.
+     * <p>
+     * The determinant is taken from the same LU factorisation used by <code>solve</code>
+     * and <code>inverse</code>, so the three always agree: if <code>inverse()</code> would
+     * report the matrix as singular, this method returns exactly <code>0</code> rather than
+     * a tiny rounding-error value such as <code>6.66e-16</code>.
      *
      * @return the determinant
+     * @see #lu()
      */
     public double determinant() {
         requireSquare("determinant");
         if( rows == 0 )
             return 1; // by convention, the determinant of a 0x0 matrix is 1
-        int n = rows;
-        double[][] a = deepCopy(matrix);
-        double det = 1;
-        for(int col=0; col<n; col++) {
-            int pivot = col;
-            for(int r=col+1; r<n; r++)
-                if( Math.abs(a[r][col]) > Math.abs(a[pivot][col]) )
-                    pivot = r;
-            if( a[pivot][col] == 0 )
-                return 0;
-            if( pivot != col ) {
-                double[] tmp = a[pivot]; a[pivot] = a[col]; a[col] = tmp;
-                det = -det;
-            }
-            det *= a[col][col];
-            for(int r=col+1; r<n; r++) {
-                double f = a[r][col] / a[col][col];
-                for(int c=col; c<n; c++)
-                    a[r][c] -= f * a[col][c];
-            }
-        }
-        return det;
+        LU f = new LU(matrix, rows);
+        return f.singularColumn >= 0 ? 0 : f.det();
     }
 
     // ------------------------------------------------------------------
-    // Transpose, inverse and solving
+    // Transpose, LU factorisation, inverse and solving
     // ------------------------------------------------------------------
 
     /**
@@ -385,6 +371,35 @@ public class Matrix {
     }
 
     /**
+     * Computes the LU factorisation of this matrix, <code>P*A = L*U</code>, using Gaussian
+     * elimination with scaled partial pivoting. This matrix is left unchanged.
+     * <p>
+     * Factorising costs about n<sup>3</sup> operations, but each later
+     * <code>solve</code> on the result costs only about n<sup>2</sup>. When you need to solve
+     * against the same matrix many times, factorise once and reuse the result:
+     * <pre>
+     * Matrix.LU lu = A.lu();
+     * Matrix x1 = lu.solve(b1);
+     * Matrix x2 = lu.solve(b2);
+     * double det = lu.determinant();
+     * </pre>
+     *
+     * @return The factorisation
+     * @exception NonInvertibleMatrixException If the matrix is not square, is empty or is
+     * singular (or numerically singular; see {@link #SINGULAR_TOLERANCE})
+     * @see LU
+     */
+    public LU lu() throws NonInvertibleMatrixException {
+        if( ! isSquare() )
+            throw new NonInvertibleMatrixException("Cannot factorise a non square matrix: " + rows + "x" + columns);
+        if( rows == 0 )
+            throw new NonInvertibleMatrixException("Cannot factorise an empty matrix.");
+        LU f = new LU(matrix, rows);
+        f.requireNonSingular();
+        return f;
+    }
+
+    /**
      * Computes the inverse of the matrix. This matrix is left unchanged.
      * <p>
      * If you only need the inverse in order to compute <code>inverse().dot(b)</code>,
@@ -394,11 +409,12 @@ public class Matrix {
      * @exception NonInvertibleMatrixException If the matrix is not square, is empty,
      * or is singular (or so close to singular that its inverse would be meaningless)
      * @see #solve(Matrix)
+     * @see #lu()
      */
     public Matrix inverse() throws NonInvertibleMatrixException {
         if( ! isSquare() )
             throw new NonInvertibleMatrixException("Cannot invert a non square matrix: " + rows + "x" + columns);
-        return solve(identity(rows));
+        return lu().inverse();
     }
 
     /**
@@ -406,10 +422,14 @@ public class Matrix {
      * (square) matrix and B is the supplied matrix <code>rhs</code>. B may have any number of
      * columns; each column is solved as a separate right hand side. Neither matrix is
      * modified.
+     * <p>
+     * Each call factorises A afresh. To solve against the same A repeatedly, call
+     * <code>lu()</code> once and use {@link LU#solve(Matrix)}.
      *
      * @param rhs The right hand side B. It must have the same number of rows as this matrix.
      * @return X, a matrix with the same dimensions as <code>rhs</code>
      * @exception NonInvertibleMatrixException If this matrix is not square, is empty or is singular
+     * @see #lu()
      */
     public Matrix solve(Matrix rhs) throws NonInvertibleMatrixException {
         if( ! isSquare() )
@@ -419,94 +439,221 @@ public class Matrix {
         if( rhs.rows != rows )
             throw new IllegalArgumentException("Right hand side must have " + rows +
                     " rows but has " + rhs.rows);
-
-        int n = rows;
-        int m = rhs.columns;
-        // Work on copies: gaussian() eliminates in place and must never touch our data
-        double[][] a = deepCopy(matrix);
-        double[][] b = deepCopy(rhs.matrix);
-        int[] index = new int[n];
-
-        // Transform a copy of the matrix into an upper triangle
-        gaussian(a, index);
-
-        // Apply the stored elimination ratios to the right hand side
-        for (int i=0; i<n-1; ++i)
-            for (int j=i+1; j<n; ++j)
-                for (int k=0; k<m; ++k)
-                    b[index[j]][k] -= a[index[j]][i]*b[index[i]][k];
-
-        // Perform backward substitutions
-        double[][] x = new double[n][m];
-        for (int col=0; col<m; ++col) {
-            x[n-1][col] = b[index[n-1]][col]/a[index[n-1]][n-1];
-            for (int j=n-2; j>=0; --j) {
-                double v = b[index[j]][col];
-                for (int k=j+1; k<n; ++k)
-                    v -= a[index[j]][k]*x[k][col];
-                x[j][col] = v / a[index[j]][j];
-            }
-        }
-        return adopt(x, m);
+        return lu().solve(rhs);
     }
 
     /**
-     * Gaussian elimination with scaled partial pivoting, performed IN PLACE on
-     * <code>a</code>. Callers must pass a copy. On return the upper triangle of
-     * <code>a</code> holds U, the elimination ratios are stored below the diagonal,
-     * and <code>index</code> holds the pivoting order.
+     * The LU factorisation of a square matrix A, in the form <code>P*A = L*U</code>, where
+     * P is a permutation matrix, L is unit lower triangular (ones on the diagonal) and U is
+     * upper triangular. Obtain one with {@link Matrix#lu()}.
+     * <p>
+     * An <code>LU</code> is immutable: none of its methods change it, and the matrices
+     * returned by <code>getL</code>, <code>getU</code> and <code>getP</code> are copies.
+     * It is therefore safe to keep one and reuse it for as many solves as you like.
      */
-    private static void gaussian(double[][] a, int[] index) throws NonInvertibleMatrixException {
-        int n = index.length;
-        double[] c = new double[n];
+    public static final class LU {
+        /** L (below the diagonal, unit diagonal implied) and U (on and above), rows already permuted. */
+        private final double[][] lu;
+        /** perm[i] is the row of the original matrix that ended up in row i. */
+        private final int[] perm;
+        private final int n;
+        /** +1 or -1: the sign of the permutation (an even or odd number of row swaps). */
+        private final int sign;
+        /** -1 if the matrix is non singular, otherwise the column where no usable pivot was found. */
+        private final int singularColumn;
+        /** -1, or the index of an all-zero row (reported in preference to singularColumn). */
+        private final int zeroRow;
 
-        for (int i=0; i<n; ++i)
-            index[i] = i;
+        /**
+         * Factorises a copy of <code>a</code>. Never throws for singularity: it records
+         * where elimination stopped, so that <code>determinant()</code> can return 0 while
+         * <code>lu()</code> reports the problem.
+         */
+        private LU(double[][] a, int n) {
+            this.n = n;
+            double[][] w = deepCopy(a);
+            int[] p = new int[n];
+            double[] scale = new double[n];
+            int s = 1, badCol = -1, badRow = -1;
 
-        // Find the rescaling factors, one from each row
-        for (int i=0; i<n; ++i) {
-            double c1 = 0;
-            for (int j=0; j<n; ++j) {
-                double c0 = Math.abs(a[i][j]);
-                if (c0 > c1) c1 = c0;
+            for (int i = 0; i < n; i++) {
+                p[i] = i;
+                double max = 0;
+                for (int j = 0; j < n; j++)
+                    max = Math.max(max, Math.abs(w[i][j]));
+                if (max == 0 && badRow < 0)
+                    badRow = i;
+                scale[i] = max;
             }
-            if (c1 == 0)
-                throw new NonInvertibleMatrixException("Matrix is singular: row " + i + " is all zeros.");
-            c[i] = c1;
-        }
 
-        for (int j=0; j<n-1; ++j) {
-            // Search for the pivoting element in this column
-            double pi1 = 0;
-            int k = j;
-            for (int i=j; i<n; ++i) {
-                double pi0 = Math.abs(a[index[i]][j]) / c[index[i]];
-                if (pi0 > pi1) {
-                    pi1 = pi0;
-                    k = i;
+            if (badRow < 0) {
+                for (int j = 0; j < n; j++) {
+                    // Choose the pivot that is largest relative to the size of its row
+                    int k = j;
+                    double best = 0;
+                    for (int i = j; i < n; i++) {
+                        double r = Math.abs(w[i][j]) / scale[i];
+                        if (r > best) { best = r; k = i; }
+                    }
+                    if (best < SINGULAR_TOLERANCE) { badCol = j; break; }
+
+                    if (k != j) {
+                        double[] t = w[k]; w[k] = w[j]; w[j] = t;
+                        int ti = p[k]; p[k] = p[j]; p[j] = ti;
+                        double ts = scale[k]; scale[k] = scale[j]; scale[j] = ts;
+                        s = -s;
+                    }
+
+                    double pivot = w[j][j];
+                    double[] pivotRow = w[j];
+                    for (int i = j + 1; i < n; i++) {
+                        double[] row = w[i];
+                        double f = row[j] / pivot;
+                        row[j] = f;                       // store the multiplier: this is L
+                        if (f != 0)
+                            for (int l = j + 1; l < n; l++)
+                                row[l] -= f * pivotRow[l];
+                    }
                 }
             }
-            if (pi1 < SINGULAR_TOLERANCE)
-                throw new NonInvertibleMatrixException("Matrix is singular (no usable pivot in column " + j + ").");
-
-            // Interchange rows according to the pivoting order
-            int itmp = index[j];
-            index[j] = index[k];
-            index[k] = itmp;
-
-            for (int i=j+1; i<n; ++i) {
-                double pj = a[index[i]][j]/a[index[j]][j];
-                // Record pivoting ratios below the diagonal
-                a[index[i]][j] = pj;
-                // Modify other elements accordingly
-                for (int l=j+1; l<n; ++l)
-                    a[index[i]][l] -= pj*a[index[j]][l];
-            }
+            this.lu = w;
+            this.perm = p;
+            this.sign = s;
+            this.singularColumn = badRow >= 0 ? 0 : badCol;
+            this.zeroRow = badRow;
         }
 
-        int last = index[n-1];
-        if (Math.abs(a[last][n-1]) / c[last] < SINGULAR_TOLERANCE)
-            throw new NonInvertibleMatrixException("Matrix is singular (no usable pivot in column " + (n-1) + ").");
+        private void requireNonSingular() throws NonInvertibleMatrixException {
+            if (zeroRow >= 0)
+                throw new NonInvertibleMatrixException("Matrix is singular: row " + zeroRow + " is all zeros.");
+            if (singularColumn >= 0)
+                throw new NonInvertibleMatrixException("Matrix is singular (no usable pivot in column " + singularColumn + ").");
+        }
+
+        private double det() {
+            double d = sign;
+            for (int i = 0; i < n; i++)
+                d *= lu[i][i];
+            return d;
+        }
+
+        /**
+         * Returns the size n of the n x n matrix that was factorised.
+         * @return n
+         */
+        public int size() {
+            return n;
+        }
+
+        /**
+         * Solves <code>A*X = B</code> for X using this factorisation. B may have any number
+         * of columns. Costs about n<sup>2</sup> operations per column of B. B is not modified.
+         *
+         * @param rhs The right hand side B, with <code>size()</code> rows
+         * @return X, a matrix with the same dimensions as <code>rhs</code>
+         */
+        public Matrix solve(Matrix rhs) {
+            if (rhs.rows != n)
+                throw new IllegalArgumentException("Right hand side must have " + n +
+                        " rows but has " + rhs.rows);
+            int m = rhs.columns;
+            double[][] x = new double[n][];
+
+            // Apply the permutation:  y = P*B
+            for (int i = 0; i < n; i++)
+                x[i] = rhs.matrix[perm[i]].clone();
+
+            // Forward substitution:  L*y = P*B   (L has a unit diagonal)
+            for (int i = 1; i < n; i++) {
+                double[] xi = x[i], li = lu[i];
+                for (int k = 0; k < i; k++) {
+                    double f = li[k];
+                    if (f != 0) {
+                        double[] xk = x[k];
+                        for (int c = 0; c < m; c++)
+                            xi[c] -= f * xk[c];
+                    }
+                }
+            }
+
+            // Back substitution:  U*x = y
+            for (int i = n - 1; i >= 0; i--) {
+                double[] xi = x[i], ui = lu[i];
+                for (int k = i + 1; k < n; k++) {
+                    double f = ui[k];
+                    if (f != 0) {
+                        double[] xk = x[k];
+                        for (int c = 0; c < m; c++)
+                            xi[c] -= f * xk[c];
+                    }
+                }
+                double d = ui[i];
+                for (int c = 0; c < m; c++)
+                    xi[c] /= d;
+            }
+            return adopt(x, m);
+        }
+
+        /**
+         * Returns the inverse of the factorised matrix.
+         * @return the inverse
+         */
+        public Matrix inverse() {
+            return solve(identity(n));
+        }
+
+        /**
+         * Returns the determinant of the factorised matrix: the product of U's diagonal,
+         * negated if an odd number of row swaps was made. Costs about n operations.
+         * @return the determinant
+         */
+        public double determinant() {
+            return det();
+        }
+
+        /**
+         * Returns L, the unit lower triangular factor (ones on the diagonal).
+         * @return a copy of L
+         */
+        public Matrix getL() {
+            double[][] l = new double[n][n];
+            for (int i = 0; i < n; i++) {
+                System.arraycopy(lu[i], 0, l[i], 0, i);
+                l[i][i] = 1;
+            }
+            return adopt(l, n);
+        }
+
+        /**
+         * Returns U, the upper triangular factor.
+         * @return a copy of U
+         */
+        public Matrix getU() {
+            double[][] u = new double[n][n];
+            for (int i = 0; i < n; i++)
+                System.arraycopy(lu[i], i, u[i], i, n - i);
+            return adopt(u, n);
+        }
+
+        /**
+         * Returns P, the permutation matrix such that <code>P*A = L*U</code>.
+         * @return P
+         */
+        public Matrix getP() {
+            Matrix p = new Matrix(n, n);
+            for (int i = 0; i < n; i++)
+                p.matrix[i][perm[i]] = 1;
+            return p;
+        }
+
+        /**
+         * Returns the pivot order as an array: element i is the row of the original
+         * matrix that became row i. This is a compact alternative to <code>getP()</code>.
+         * @return a copy of the pivot order
+         */
+        public int[] getPivot() {
+            return perm.clone();
+        }
     }
 
     // ------------------------------------------------------------------
